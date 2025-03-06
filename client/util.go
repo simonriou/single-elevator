@@ -225,18 +225,16 @@ func attendToSpecificOrder(d *elevio.MotorDirection, drv_floors chan int, drv_ne
 			if a == current_order.floor { // Check if our new floor is equal to the floor of the order
 				// Set direction to stop and delete relevant orders from elevatorOrders
 
-				fmt.Printf("Changing direction\n")
 				*d = elevio.MD_Stop
 				elevio.SetMotorDirection(*d)
 
-				// Clear the lights for this order
-				turnOffLights(current_order, false)
+				turnOffLights(current_order, false) // Clear the lights for this order
 
-				// Turn on the door lights
-				elevio.SetDoorOpenLamp(true)
-
-				// Remove order from array
 				PopOrders()
+
+				elevio.SetDoorOpenLamp(false)
+				StopBlocker(3000 * time.Millisecond)
+				elevio.SetDoorOpenLamp(true)
 
 				// After deleting the relevant orders at our floor => find, if any, the next currentOrder
 				if len(elevatorOrders) != 0 {
@@ -244,12 +242,6 @@ func attendToSpecificOrder(d *elevio.MotorDirection, drv_floors chan int, drv_ne
 					prev_direction := *d
 					changeDirBasedOnCurrentOrder(d, current_order, float32(a))
 					new_direction := *d
-
-					// -> Try closing doors
-					StopBlocker(3000 * time.Millisecond)
-
-					// Turn off the door lights
-					elevio.SetDoorOpenLamp(false)
 
 					elevio.SetMotorDirection(*d)
 
@@ -261,7 +253,6 @@ func attendToSpecificOrder(d *elevio.MotorDirection, drv_floors chan int, drv_ne
 					lockMutexes(&mutex_d, &mutex_posArray)
 				} else {
 					turnOffLights(current_order, true)
-					StopBlocker(3000 * time.Millisecond)
 				}
 			}
 			unlockMutexes(&mutex_d, &mutex_elevatorOrders, &mutex_posArray)
@@ -270,7 +261,6 @@ func attendToSpecificOrder(d *elevio.MotorDirection, drv_floors chan int, drv_ne
 
 			current_order = a
 			current_position := extractPos()
-			fmt.Printf("Received a new Order and current_order: %v, curren_posision: %v, current_direction: %v\n", current_order, current_position, *d)
 			switch {
 			// Case 1: HandleOrders sent a new Order and it is at the same floor
 			case *d == elevio.MD_Stop && current_position == float32(current_order.floor):
@@ -278,6 +268,7 @@ func attendToSpecificOrder(d *elevio.MotorDirection, drv_floors chan int, drv_ne
 
 				turnOffLights(current_order, false)
 
+				elevio.SetDoorOpenLamp(true)
 				StopBlocker(3000 * time.Millisecond)
 				elevio.SetDoorOpenLamp(false)
 
@@ -300,14 +291,12 @@ func attendToSpecificOrder(d *elevio.MotorDirection, drv_floors chan int, drv_ne
 					lockMutexes(&mutex_d, &mutex_posArray)
 				} else {
 					turnOffLights(current_order, true)
-					StopBlocker(3000 * time.Millisecond)
 				}
 
 				// Case 2: HandleOrders sent a new Order and it is at a different floor
 			case current_position != float32(current_order.floor):
-				fmt.Printf("HandleOrders sent a new Order and it is at a different floor\n")
-
 				current_position := extractPos()
+				
 				prev_direction := *d
 				changeDirBasedOnCurrentOrder(d, current_order, current_position)
 				new_direction := *d
