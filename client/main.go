@@ -2,6 +2,9 @@ package main
 
 import (
 	"Driver-go/elevio"
+	"Network-go/network/bcast"
+	"Network-go/network/peers"
+	"flag"
 	"fmt"
 	"sync"
 	"time"
@@ -22,6 +25,10 @@ var (
 var (
 	ableToCloseDoors bool
 	mutex_doors      sync.Mutex
+)
+
+var (
+	role string
 )
 
 var mutex_d sync.Mutex
@@ -64,7 +71,29 @@ func turnOffLights(current_order Order, allFloors bool) {
 }
 
 func main() {
-	elevio.Init("localhost:20002", numFloors)
+	// Decide the port on which we are working
+	port_val := flag.String("port", "", "The port of the elevator")
+	role_val := flag.String("role", "", "The role of the elevator")
+	flag.Parse()
+
+	port := *port_val
+	fmt.Printf("Working on address: %v\n", "localhost:"+port)
+	role = *role_val
+	fmt.Printf("Role passed: %v\n", role)
+
+	peerUpdateCh := make(chan peers.PeerUpdate)
+	peerTxEnable := make(chan bool)
+	go peers.Transmitter(15647, role, peerTxEnable) // Creates a channel that broadcasts our role
+	go peers.Receiver(15647, peerUpdateCh)          // Creates a channel that listens
+
+	// We make channels for sending and receiving our custom data types
+	helloTx := make(chan string)
+	helloRx := make(chan string)
+
+	go bcast.Transmitter(16569, helloTx)
+	go bcast.Receiver(16569, helloRx)
+
+	elevio.Init("localhost:"+port, numFloors)
 
 	drv_buttons := make(chan elevio.ButtonEvent)
 	drv_floors := make(chan int)
@@ -105,11 +134,17 @@ func main() {
 	<-drv_finishedInitialization
 
 	fmt.Printf("Initialization finished\n")
+	helloTx <- "Initialization finished.\n"
 
 	// Section_END ---- Initialization
 
 	go trackPosition(drv_floors2, drv_DirectionChange, &d) // Starts tracking the position of the elevator
 	go attendToSpecificOrder(&d, drv_floors, drv_newOrder, drv_DirectionChange)
+
+	if role == "Slave" {
+		d = elevio.MD_Up
+		elevio.SetMotorDirection(d)
+	}
 
 	for {
 		select {
@@ -152,6 +187,9 @@ func main() {
 
 			drv_newOrder <- first_element
 
+		case a := <-helloRx:
+			fmt.Printf("Received: %#v\n", a)
+
 		case a := <-drv_stop:
 			switch {
 			case a:
@@ -193,5 +231,6 @@ func main() {
 				fmt.Print("Obstruction off\n")
 			}
 		}
+
 	}
 }
